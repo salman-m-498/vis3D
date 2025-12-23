@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import RAPIER from '@dimforge/rapier3d-compat'
-import { getBody, getMouseBall, getCoreBall } from "./getBodies.js"
+import { getBody, getMouseBall, getCoreBall, getMetaballs } from "./getBodies.js"
 import getLayer from "./getLayer.js";
 
 // Scene
@@ -74,6 +74,9 @@ scene.add(mouseBall.mesh);
 const coreBall = getCoreBall(RAPIER, world);
 scene.add(coreBall.mesh);
 
+//const metaballs = getMetaballs();
+//scene.add(metaballs.mesh);
+
 // Mouse Interactivity
 const raycaster = new THREE.Raycaster();
 const pointerPos = new THREE.Vector2(0, 0);
@@ -124,15 +127,17 @@ window.addEventListener('resize', () => {
 })
 
 // Animation loop
-function animate() {
+function animate(time) {
   requestAnimationFrame(animate);
   world.step();
   handleRaycast();
   mouseBall.update(mousePos);
+  coreBall.update(time);
   controls.update();
   // renderDebugView();
   bodies.forEach(b => b.update());
+  //metaballs.update(bodies, mousePos);
   renderer.render(scene, camera);
 }
 
-animate();
+animate(0);
