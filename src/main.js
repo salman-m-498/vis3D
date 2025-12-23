@@ -1,20 +1,58 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js'
 import RAPIER from '@dimforge/rapier3d-compat'
 import { getBody, getMouseBall, getCoreBall, getMetaballs } from "./getBodies.js"
 import getLayer from "./getLayer.js";
 
 // Scene
 const scene = new THREE.Scene()
-scene.background = new THREE.Color(0x1a1a2e)
+scene.background = new THREE.Color(0x0a0a15)
 
 // Renderer
 const canvas = document.getElementById('canvas')
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
 renderer.toneMapping = THREE.ACESFilmicToneMapping
+renderer.toneMappingExposure = 1.2
 renderer.outputColorSpace = THREE.SRGBColorSpace
 renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+
+// Create a simple procedural environment map for reflections
+const pmremGenerator = new THREE.PMREMGenerator(renderer)
+pmremGenerator.compileEquirectangularShader()
+
+// Create gradient environment texture
+const envScene = new THREE.Scene()
+const envCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
+const gradientMaterial = new THREE.ShaderMaterial({
+  uniforms: {},
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    varying vec2 vUv;
+    void main() {
+      vec3 top = vec3(0.1, 0.15, 0.3);
+      vec3 bottom = vec3(0.02, 0.02, 0.05);
+      vec3 color = mix(bottom, top, vUv.y);
+      gl_FragColor = vec4(color, 1.0);
+    }
+  `,
+  side: THREE.DoubleSide
+})
+const gradientMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), gradientMaterial)
+envScene.add(gradientMesh)
+
+const cubeRenderTarget = new THREE.WebGLCubeRenderTarget(256)
+const cubeCamera = new THREE.CubeCamera(0.1, 10, cubeRenderTarget)
+cubeCamera.update(renderer, envScene)
+const envMap = pmremGenerator.fromCubemap(cubeRenderTarget.texture).texture
+scene.environment = envMap
 
 // Camera
 const camera = new THREE.PerspectiveCamera(
@@ -45,19 +83,28 @@ const gradientBackground = getLayer({
 scene.add(gradientBackground);
 
 // Lighting
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.5)
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.6)
 scene.add(ambientLight)
 
-const directionalLight = new THREE.DirectionalLight(0xffffff, 1)
+const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5)
 directionalLight.position.set(5, 5, 5)
 scene.add(directionalLight)
+
+// Additional lights for better metallic reflections
+const light2 = new THREE.DirectionalLight(0x4488ff, 0.8)
+light2.position.set(-5, 3, -5)
+scene.add(light2)
+
+const light3 = new THREE.DirectionalLight(0xff8844, 0.5)
+light3.position.set(0, -5, 5)
+scene.add(light3)
 
 const numBodies = 100;
 const bodies = [];
 for (let i = 0; i < numBodies; i++) {
   const body = getBody(RAPIER, world);
   bodies.push(body);
-  scene.add(body.mesh);
+  // Don't add meshes - metaballs will visualize them
 }
 
 const pointsGeo = new THREE.BufferGeometry();
@@ -69,13 +116,13 @@ const points = new THREE.Points(pointsGeo, pointsMat);
 scene.add(points);
 
 const mouseBall = getMouseBall(RAPIER, world);
-scene.add(mouseBall.mesh);
+// Don't add mesh - metaballs will render it
 
 const coreBall = getCoreBall(RAPIER, world);
-scene.add(coreBall.mesh);
+// Don't add mesh - metaballs will render it
 
-//const metaballs = getMetaballs();
-//scene.add(metaballs.mesh);
+const metaballs = getMetaballs();
+scene.add(metaballs.mesh);
 
 // Mouse Interactivity
 const raycaster = new THREE.Raycaster();
@@ -133,10 +180,11 @@ function animate(time) {
   handleRaycast();
   mouseBall.update(mousePos);
   coreBall.update(time);
+  const coreScale = coreBall.getScale();
   controls.update();
   // renderDebugView();
-  bodies.forEach(b => b.update());
-  //metaballs.update(bodies, mousePos);
+  bodies.forEach(b => b.update(coreScale));
+  metaballs.update(bodies, mousePos, coreScale);
   renderer.render(scene, camera);
 }
 
